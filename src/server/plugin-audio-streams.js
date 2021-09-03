@@ -4,7 +4,6 @@ import rimraf from 'rimraf';
 // import Slicer from './Slicer';
 import serveStatic from 'serve-static';
 import mkdirp from 'mkdirp';
-import urljoin from 'url-join';
 import pluginFileSystemFactory from '@soundworks/plugin-filesystem/server';
 import Blocked from './Blocked.js';
 import { Worker } from 'worker_threads';
@@ -18,7 +17,12 @@ const blocked = new Blocked(duration => {
 }, threshold);
 
 const schema = {
-  streamsInfos: {
+  details: {
+    type: 'any',
+    default: null,
+    nullable: true,
+  },
+  list: {
     type: 'any',
     default: null,
     nullable: true,
@@ -52,12 +56,10 @@ const pluginFactory = function(AbstractPlugin) {
       }
 
       this.outputDir = path.join(process.cwd(), '.data', 'streams', this.name);
-      // handle soundworks.config.env.subpath to work behind a proxy server
-      const subpath = server.config.env.subpath;
-      this.httpRoute = `${subpath ? `/${subpath}` : ''}/streams/${this.name}`;
+      this.httpRoute = `streams-${this.name}`;
 
       this.streamList = []; // [filename]
-      this.streamsInfos = {}; // <filename, chunks>
+      this.streamDetails = {}; // <filename, chunks>
 
       this.server.pluginManager.register(`${this.name}-fs`, pluginFileSystemFactory, {
         directories: [{
@@ -67,6 +69,12 @@ const pluginFactory = function(AbstractPlugin) {
       });
 
       this.filesystem = this.server.pluginManager.get(`${this.name}-fs`);
+
+      if (!this.server.createNamespacedDb) {
+        throw new Error(`[soundworks:${this.name}] @soundwoks/plugin-audio-streams relies on an internal soundworks feature introduced in @soundworks/core#v3.1.0-beta.1, consider updating soundworks to the lastest version to use this plugin`);
+      }
+
+      this.db = this.server.createNamespacedDb(this.name);
 
       this.slicer = new Worker(path.join(__dirname, './Slicer.js'), {
         workerData: {
@@ -83,11 +91,10 @@ const pluginFactory = function(AbstractPlugin) {
 
     async start() {
       if (!this.options.cache) {
-        // delete all existing stream slices
         await new Promise(resolve => rimraf(this.outputDir, resolve));
+        await this.db.clear();
       } else {
-
-        this.streamList = await this.server.db.get(`s:${this.name}:__streamList__`) || [];
+        this.streamList = await this.db.get('__streamList__') || [];
       }
 
       // create target directory if not exists and expose it publicly
@@ -98,12 +105,21 @@ const pluginFactory = function(AbstractPlugin) {
 
       this.started();
 
-      this.filesystem.signals.ready.addObserver(async () => {
+      // @todo - clean that when Signals are switched to Promises
+      // cf. https://github.com/collective-soundworks/soundworks/issues/41
+      if (this.filesystem.signals.ready.value) {
         this.filesystem.subscribe(() => this.updateStreams());
         await this.updateStreams(true);
 
         this.ready();
-      });
+      } else {
+        this.filesystem.signals.ready.addObserver(async () => {
+          this.filesystem.subscribe(() => this.updateStreams());
+          await this.updateStreams(true);
+
+          this.ready();
+        });
+      }
     }
 
     connect(client) {
@@ -151,12 +167,17 @@ const pluginFactory = function(AbstractPlugin) {
       this.streamList = streamList;
 
       if (this.options.cache) {
-        await this.server.db.set(`s:${this.name}:__streamList__`, this.streamList);
+        await this.db.set('__streamList__', this.streamList);
       }
 
       await this.deleteStreamChunks(deletedStreams);
       await this.createStreamChunks(streamList);
-      await this.state.set({ streamsInfos: this.streamsInfos });
+
+      // notify clients
+      await this.state.set({
+        list: Object.keys(this.streamDetails),
+        details: this.streamDetails,
+      });
     }
 
     async deleteStreamChunks(streamList) {
@@ -167,7 +188,7 @@ const pluginFactory = function(AbstractPlugin) {
           console.log(chalk.cyan(`[plugin:${this.name}] deleted stream: "${streamFilename}"`));
           resolve();
         }));
-      }))
+      }));
     }
 
     /**
@@ -200,13 +221,13 @@ const pluginFactory = function(AbstractPlugin) {
           // handle cache - do not process files that have not changed
           const cachedItem = (this.options.cache === false)
             ? null
-            : await this.server.db.get(`s:${this.name}:${streamFilename}`);
+            : await this.db.get(streamFilename);
 
           const stats = fs.statSync(streamPathname);
           const ctimeMs = stats.ctimeMs;
 
           if (cachedItem && ctimeMs === cachedItem.ctimeMs) {
-            this.streamsInfos[streamFilename] = cachedItem.chunks;
+            this.streamDetails[streamFilename] = cachedItem.chunks;
             return next();
           }
 
@@ -222,20 +243,24 @@ const pluginFactory = function(AbstractPlugin) {
 
             this.slicer.once('message', async (chunkList) => {
               const chunks = chunkList.map(chunk => {
-                const subpath = path.relative(this.outputDir, chunk.path);
-                const url = urljoin(this.httpRoute, subpath);
+                const pathname = path.relative(this.outputDir, chunk.path);
+                const pathUrl = pathname.replace(/\\/g, '/');
+                // handle soundworks.config.env.subpath to work behind a proxy server
+                const subpath = this.server.config.env.subpath;
+                const url = `${subpath ? `/${subpath}` : ''}/${this.httpRoute}/${pathUrl}`;
                 // override path with url as clients don't need to know our filesystem
-                chunk.path = url;
+                delete chunk.path;
                 chunk.url = url;
+
                 return chunk;
               });
 
               console.log(chalk.cyan(`[plugin:${this.name}] processed stream: "${streamFilename}" (${chunks.length} chunks)`));
-              this.streamsInfos[streamFilename] = chunks;
+              this.streamDetails[streamFilename] = chunks;
               // cache informations
 
               if (this.options.cache === true) {
-                await this.server.db.set(`s:${this.name}:${streamFilename}`, { ctimeMs, chunks });
+                await this.db.set(streamFilename, { ctimeMs, chunks });
               }
 
               next();
