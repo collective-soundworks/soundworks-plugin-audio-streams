@@ -1,6 +1,6 @@
 # `@soundworks/plugin-delay` (to update)
 
-> [`soundworks`](https://github.com/collective-soundworks/soundworks) plugin that just defer its initialization. Created for testing the plugin manager life cycle (let us know if you find any other use case from that, ...).
+> [`soundworks`](https://github.com/collective-soundworks/soundworks) plugin that just defers its initialization. Created for testing the plugin manager's life cycle (let us know if you find any other use cases for that).
 
 ## Table of Contents
 
