@@ -38,7 +38,7 @@ class Slicer {
     this.compress = compress;
     this.bitrate = bitrate;
     // overlap duration, in seconds
-    this.overlapDuration = overlap;
+    this.overlapDuration = (overlap > 0 ? overlap : 0);
     // locals
     this.reader = new Reader();
 
@@ -134,7 +134,7 @@ class Slicer {
           // next
           chunkIndex += 1;
           chunkStart += baseChunkDuration;
-        } while (overlapEnd > 0);
+        } while (chunkStart < totalDuration);
 
         await Promise.all(encoderPromises);
         resolve(chunkList);
