@@ -72,7 +72,7 @@ class Slicer {
         const outputExtension = this.compress && metaBuffer.numberOfChannels <= 2 ? 'mp3' : 'wav';
 
         // init slicing loop
-        const totalDuration = metaBuffer.dataLength / metaBuffer.bytePerSecond;
+        const totalDuration = metaBuffer.dataLength / metaBuffer.bytesPerSecond;
         const chunkList = [];
         const encoderPromises = [];
         const baseChunkDuration = this.chunkDuration;
@@ -168,10 +168,10 @@ class Slicer {
     const headBuffer = inputBuffer.slice(0, dataStart);
     const tailBuffer = inputBuffer.slice(dataStart + dataLength);
 
-    const bytePerSecond = metaBuffer.bytePerSecond;
-    const chunkStartIndex = Math.round(bytePerSecond * chunkStart);
+    const bytesPerSecond = metaBuffer.bytesPerSecond;
+    const chunkStartIndex = Math.round(bytesPerSecond * chunkStart);
     // end index is exclusive: one more
-    const chunkEndIndex = chunkStartIndex + Math.round(bytePerSecond * chunkDuration);
+    const chunkEndIndex = chunkStartIndex + Math.round(bytesPerSecond * chunkDuration);
     const dataBuffer = inputBuffer.slice(dataStart + chunkStartIndex, dataStart + chunkEndIndex);
     const chunkLength = dataBuffer.length;
 
@@ -189,8 +189,8 @@ class Slicer {
 
     return {
       chunkBuffer: chunkBuffer,
-      chunkStart: chunkStartIndex / bytePerSecond,
-      chunkDuration: chunkLength / bytePerSecond,
+      chunkStart: chunkStartIndex / bytesPerSecond,
+      chunkDuration: chunkLength / bytesPerSecond,
     };
   }
 }
@@ -234,8 +234,8 @@ class Reader {
       dataLength: wavInfo.descriptors.get('data').length,
       numberOfChannels: wavInfo.format.numberOfChannels,
       sampleRate: wavInfo.format.sampleRate,
-      bytePerSecond: wavInfo.format.bytePerSecond,
-      bitPerSample: wavInfo.format.bitPerSample,
+      bytesPerSecond: wavInfo.format.bytesPerSecond,
+      bitsPerSample: wavInfo.format.bitsPerSample,
     };
 
     return metaBuffer;
@@ -268,7 +268,7 @@ class WavFormatReader {
    * @property {Number} type 1 is PCM
    * @property {Number} numberOfChannels
    * @property {Number} sampleRate
-   * @property {Number} bytePerSecond sampleRate * bitsPerSample * numberOfChannels / 8.
+   * @property {Number} bytesPerSecond sampleRate * bitsPerSample * numberOfChannels / 8.
    * @property {Number} bitsPerSample
    */
 
@@ -289,7 +289,7 @@ class WavFormatReader {
       type: buffer.readUIntLE(fmt.start, 2),
       numberOfChannels: buffer.readUIntLE(fmt.start + 2, 2),
       sampleRate: buffer.readUIntLE(fmt.start + 4, 4),
-      bytePerSecond: buffer.readUIntLE(fmt.start + 8, 4),
+      bytesPerSecond: buffer.readUIntLE(fmt.start + 8, 4),
       bitsPerSample: buffer.readUIntLE(fmt.start + 14, 2)
     };
     return format;
@@ -320,8 +320,7 @@ class WavFormatReader {
     let descriptors = new Map();
 
     // search for buffer descriptors
-    while (index < buffer.length) {
-
+    while (index + descriptorLength < buffer.length) {
       // read chunk descriptor
       let bytes = buffer.slice(index, index + descriptorLength);
       descriptor = this.stringDecoder.write(bytes);
