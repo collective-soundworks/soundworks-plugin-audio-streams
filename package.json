@@ -1,6 +1,6 @@
 {
   "name": "@soundworks/plugin-audio-streams",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "soundworks plugin dedicated at managing audio streams",
   "authors": [
     "Benjamin Matuszewski",
