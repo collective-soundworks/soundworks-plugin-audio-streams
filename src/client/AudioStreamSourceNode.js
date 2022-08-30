@@ -49,7 +49,7 @@ class AudioStreamSourceNode {
     // console.log('monitorPreload - position', position);
 
     while (index < this._chunks.length && this._chunks[index].start <= advanceThreshold) {
-      if (!this._buffers[index]) {
+      if (!this._buffers[index]  && !this._chunks[index].isLoading) {
         this._loadBuffer(index);
       }
 
@@ -60,9 +60,13 @@ class AudioStreamSourceNode {
   }
 
   async _loadBuffer(chunkIndex) {
+    this._chunks[chunkIndex].isLoading = true;
+
     const url = this._chunks[chunkIndex].url;
     const buffer = await loadAudioBuffer(this.audioContext, url);
     this._buffers[chunkIndex] = buffer;
+
+    this._chunks[chunkIndex].isLoading = false;
   }
 
   connect(dest) {
@@ -81,6 +85,7 @@ class AudioStreamSourceNode {
     }
 
     this._chunks = streams[value];
+    this._chunks.forEach((chunk) => chunk.isLoading = false);
     this._buffers = [...this._plugin._preloadCache.get(value)];
 
     // create sine and cosine curves for setValueCurveAtTime
